@@ -157,10 +157,12 @@ export const login = async (req, res) => {
     res.status(500).json({ message: "Đã xảy ra lỗi phía máy chủ khi đăng nhập.", error: error.message });
   }
 };
-// --- HÀM QUÊN MẬT KHẨU (forgotPassword) ---
+// ========================================
+// --- HÀM QUÊN MẬT KHẨU (forgotPassword) - FIXED ---
+// ========================================
 export const forgotPassword = async (req, res) => {
   const { email } = req.body;
-  console.log("Forgot password request for email:", email);
+  console.log("📧 Forgot password request for email:", email);
 
   if (!email) {
     return res.status(400).json({ message: "Vui lòng nhập địa chỉ email." });
@@ -170,96 +172,180 @@ export const forgotPassword = async (req, res) => {
     // 1. Tìm user bằng email
     const user = await User.findOne({ email });
     if (!user) {
-      console.log("Forgot password: User not found with email:", email);
-      // Vẫn trả về thành công để tránh lộ thông tin email nào đã đăng ký
-      return res.status(200).json({ message: "Nếu email tồn tại, một liên kết đặt lại mật khẩu đã được gửi." });
+      console.log("⚠️ User not found with email:", email);
+      // Vẫn trả về success để không lộ thông tin
+      return res.status(200).json({ 
+        message: "Nếu email tồn tại trong hệ thống, một liên kết đặt lại mật khẩu đã được gửi." 
+      });
     }
-    console.log("User found for password reset:", user.email);
+    console.log("✅ User found:", user.email);
 
     // 2. Tạo Reset Token
-    const resetToken = crypto.randomBytes(20).toString('hex');
-    console.log("Generated reset token (raw):", resetToken);
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    console.log("🔑 Generated reset token (raw):", resetToken);
 
-    // 3. Hash token và đặt thời gian hết hạn (ví dụ: 10 phút)
+    // 3. Hash token và set expire time (1 giờ thay vì 10 phút)
     user.resetPasswordToken = crypto
       .createHash('sha256')
       .update(resetToken)
       .digest('hex');
-    user.resetPasswordExpire = Date.now() + 10 * 60 * 1000; // 10 phút tính bằng mili giây
-    console.log("Hashed token:", user.resetPasswordToken);
-    console.log("Token expires at:", new Date(user.resetPasswordExpire).toLocaleString());
+    user.resetPasswordExpire = Date.now() + 60 * 60 * 1000; // 1 giờ
+    console.log("🔒 Hashed token:", user.resetPasswordToken);
+    console.log("⏰ Token expires at:", new Date(user.resetPasswordExpire).toLocaleString());
 
+    await user.save({ validateBeforeSave: false });
+    console.log("💾 Reset token saved to database");
 
-    await user.save({ validateBeforeSave: false }); // Lưu token và thời hạn vào DB (bỏ qua validation khác nếu có)
-    console.log("Reset token saved to user:", user.email);
+    // ✅ 4. SỬ DỤNG BIẾN MÔI TRƯỜNG CHO FRONTEND URL
+    const frontendUrl = process.env.FRONTEND_URL || 'https://exe2.vercel.app';
+    const resetUrl = `${frontendUrl}/reset-password/${resetToken}`;
+    console.log("🔗 Reset URL:", resetUrl);
 
-    // 4. Tạo URL Reset (trỏ về trang frontend)
-    // *** THAY `http://localhost:5173` BẰNG ĐỊA CHỈ FRONTEND CỦA BRO ***
-    const resetUrl = `http://localhost:5173/reset-password/${resetToken}`;
-    console.log("Reset URL:", resetUrl);
+    // ✅ 5. EMAIL TEMPLATE ĐẸP HƠN
+    const emailTemplate = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+          .header h1 { color: white; margin: 0; font-size: 28px; }
+          .content { background: white; padding: 30px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 10px 10px; }
+          .button { display: inline-block; background: #4f46e5; color: white !important; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; margin: 20px 0; }
+          .warning { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; border-radius: 5px; }
+          .footer { text-align: center; color: #9ca3af; font-size: 12px; margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; }
+          .url-box { background: #f3f4f6; padding: 12px; border-radius: 5px; word-break: break-all; font-size: 13px; color: #4f46e5; margin: 15px 0; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>🔐 Đặt Lại Mật Khẩu</h1>
+          </div>
+          
+          <div class="content">
+            <p style="font-size: 16px; margin-bottom: 10px;">Xin chào <strong>${user.name || 'bạn'}</strong>,</p>
+            
+            <p>Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản StudentWork của bạn.</p>
+            
+            <p>Nhấp vào nút bên dưới để đặt lại mật khẩu:</p>
 
-    // 5. Tạo nội dung Email
-    const message = `
-      <h1>Yêu cầu đặt lại mật khẩu</h1>
-      <p>Bạn nhận được email này vì bạn (hoặc ai đó) đã yêu cầu đặt lại mật khẩu cho tài khoản của bạn.</p>
-      <p>Vui lòng nhấp vào liên kết bên dưới để đặt lại mật khẩu:</p>
-      <a href="${resetUrl}" clicktracking=off>${resetUrl}</a>
-      <p>Liên kết này sẽ hết hạn sau 10 phút.</p>
-      <p>Nếu bạn không yêu cầu điều này, vui lòng bỏ qua email này và mật khẩu của bạn sẽ không thay đổi.</p>
+            <div style="text-align: center;">
+              <a href="${resetUrl}" class="button" style="color: white;">Đặt Lại Mật Khẩu</a>
+            </div>
+
+            <p style="color: #6b7280; font-size: 14px;">Hoặc copy link sau vào trình duyệt:</p>
+            <div class="url-box">${resetUrl}</div>
+
+            <div class="warning">
+              <p style="color: #92400e; margin: 0; font-size: 14px;">
+                ⚠️ <strong>Lưu ý quan trọng:</strong>
+              </p>
+              <ul style="color: #92400e; margin: 10px 0 0 0; padding-left: 20px;">
+                <li>Link này chỉ có hiệu lực trong <strong>1 giờ</strong></li>
+                <li>Link chỉ sử dụng được <strong>một lần</strong></li>
+                <li>Không chia sẻ link này với bất kỳ ai</li>
+              </ul>
+            </div>
+
+            <p style="color: #6b7280; font-size: 14px; margin-top: 20px;">
+              Nếu bạn <strong>không yêu cầu</strong> đặt lại mật khẩu, vui lòng bỏ qua email này. Mật khẩu của bạn sẽ không thay đổi.
+            </p>
+
+            <div class="footer">
+              <p><strong>StudentWork</strong> - Nền tảng tìm việc Part-time cho Sinh viên</p>
+              <p>Email tự động, vui lòng không trả lời.</p>
+            </div>
+          </div>
+        </div>
+      </body>
+      </html>
     `;
 
-    // 6. Cấu hình và Gửi Email bằng nodemailer
-    // *** CẦN CẤU HÌNH THÔNG TIN EMAIL CỦA BRO ***
-    // Ví dụ dùng Gmail (Cần bật "Less secure app access" hoặc dùng App Password)
-    // Nên dùng biến môi trường (.env) cho email và password
+    // ✅ 6. CẤU HÌNH EMAIL VỚI ERROR HANDLING TỐT HƠN
     try {
+      // Validate email config
+      if (!process.env.EMAIL_USERNAME || !process.env.EMAIL_PASSWORD) {
+        throw new Error('❌ Missing EMAIL_USERNAME or EMAIL_PASSWORD in environment variables');
+      }
+
       const transporter = nodemailer.createTransport({
-        service: 'gmail', // Hoặc dịch vụ khác như SendGrid, Mailgun
+        service: 'gmail',
         auth: {
-          user: process.env.EMAIL_USERNAME, // Thêm vào file .env: EMAIL_USERNAME=youremail@gmail.com
-          pass: process.env.EMAIL_PASSWORD, // Thêm vào file .env: EMAIL_PASSWORD=yourgmailpassword or App Password
+          user: process.env.EMAIL_USERNAME,
+          pass: process.env.EMAIL_PASSWORD,
         },
+        tls: {
+          rejectUnauthorized: false
+        }
       });
 
+      // Verify transporter config trước khi gửi
+      await transporter.verify();
+      console.log('✅ Email transporter verified');
+
       const mailOptions = {
-        from: `"StudentWork Support" <${process.env.EMAIL_USERNAME}>`, // Sender address
-        to: user.email, // list of receivers
-        subject: "Yêu cầu đặt lại mật khẩu StudentWork", // Subject line
-        html: message, // html body
+        from: `"StudentWork - Hỗ Trợ" <${process.env.EMAIL_USERNAME}>`,
+        to: user.email,
+        subject: "🔐 Đặt Lại Mật Khẩu - StudentWork",
+        html: emailTemplate,
       };
 
-      await transporter.sendMail(mailOptions);
-      console.log("Reset email sent successfully to:", user.email);
-      res.status(200).json({ message: "Một liên kết đặt lại mật khẩu đã được gửi đến email của bạn." });
+      const info = await transporter.sendMail(mailOptions);
+      console.log("✅ Reset email sent successfully to:", user.email);
+      console.log("📨 Message ID:", info.messageId);
+
+      res.status(200).json({ 
+        message: "Email đặt lại mật khẩu đã được gửi! Vui lòng kiểm tra hộp thư của bạn." 
+      });
 
     } catch (emailError) {
-      console.error("Error sending reset email:", emailError);
-      // Quan trọng: Nếu gửi mail lỗi, phải xóa token đã lưu để tránh user bị kẹt
+      console.error("❌ Error sending reset email:", emailError);
+      console.error("Error details:", {
+        code: emailError.code,
+        command: emailError.command,
+        response: emailError.response,
+        message: emailError.message
+      });
+
+      // Xóa token nếu gửi email thất bại
       user.resetPasswordToken = undefined;
       user.resetPasswordExpire = undefined;
       await user.save({ validateBeforeSave: false });
-      console.log("Reset token cleared due to email error for:", user.email);
+      console.log("🗑️ Reset token cleared due to email error");
 
-      return res.status(500).json({ message: "Lỗi khi gửi email đặt lại mật khẩu. Vui lòng thử lại sau." });
+      return res.status(500).json({ 
+        message: "Không thể gửi email. Vui lòng kiểm tra lại địa chỉ email hoặc thử lại sau.",
+        error: process.env.NODE_ENV === 'development' ? emailError.message : undefined
+      });
     }
 
   } catch (error) {
-    console.error("Error in forgotPassword:", error);
-    res.status(500).json({ message: "Đã xảy ra lỗi phía máy chủ.", error: error.message });
+    console.error("❌ Error in forgotPassword:", error);
+    res.status(500).json({ 
+      message: "Đã xảy ra lỗi phía máy chủ.", 
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 };
 
+// ========================================
 // --- HÀM ĐẶT LẠI MẬT KHẨU (resetPassword) ---
+// ========================================
 export const resetPassword = async (req, res) => {
   // 1. Lấy token từ URL params (ví dụ: /api/auth/reset-password/:token)
   const resetToken = req.params.token;
   // Lấy mật khẩu mới từ body
   const { password } = req.body;
 
-  console.log("Reset password request token (raw):", resetToken);
-  console.log("New password received:", password ? 'Yes' : 'No');
+  console.log("🔄 Reset password request received");
+  console.log("Token (raw):", resetToken);
+  console.log("New password provided:", password ? 'Yes' : 'No');
 
-
+  // Validation
   if (!resetToken || !password) {
     return res.status(400).json({ message: "Thiếu thông tin token hoặc mật khẩu mới." });
   }
@@ -273,7 +359,7 @@ export const resetPassword = async (req, res) => {
       .createHash('sha256')
       .update(resetToken)
       .digest('hex');
-    console.log("Hashed token from URL:", hashedToken);
+    console.log("🔒 Hashed token from URL:", hashedToken);
 
     // 3. Tìm user bằng hashed token và kiểm tra thời hạn
     const user = await User.findOne({
@@ -282,35 +368,37 @@ export const resetPassword = async (req, res) => {
     });
 
     if (!user) {
-      console.log("Reset password failed: Invalid or expired token.");
-      return res.status(400).json({ message: "Token đặt lại mật khẩu không hợp lệ hoặc đã hết hạn." });
+      console.log("❌ Reset password failed: Invalid or expired token");
+      return res.status(400).json({ 
+        message: "Link đặt lại mật khẩu không hợp lệ hoặc đã hết hạn. Vui lòng yêu cầu link mới." 
+      });
     }
-    console.log("Valid token found for user:", user.email);
+    console.log("✅ Valid token found for user:", user.email);
 
     // 4. Hash mật khẩu mới
     const salt = await bcrypt.genSalt(10);
-    user.password = await bcrypt.hash(password, salt); // Gán mật khẩu đã hash
-    console.log("New password hashed successfully for:", user.email);
+    user.password = await bcrypt.hash(password, salt);
+    console.log("🔐 New password hashed successfully");
 
     // 5. Xóa thông tin reset token khỏi user
     user.resetPasswordToken = undefined;
     user.resetPasswordExpire = undefined;
 
     // 6. Lưu lại user với mật khẩu mới
-    await user.save(); // Mongoose sẽ tự hash password nếu có middleware pre-save, nếu không thì đã hash ở trên
-    console.log("New password saved and reset token cleared for:", user.email);
+    await user.save();
+    console.log("✅ New password saved and reset token cleared for:", user.email);
 
-
-    // 7. (Tùy chọn) Có thể tạo token đăng nhập mới và trả về để user tự động login luôn
-    // const token = jwt.sign(...)
-    // res.status(200).json({ message: "Đặt lại mật khẩu thành công!", token, user: userResponse });
-
-    // Hoặc chỉ trả về thành công và yêu cầu user đăng nhập lại
-    res.status(200).json({ message: "Đặt lại mật khẩu thành công! Vui lòng đăng nhập lại." });
+    // 7. Trả về thành công
+    res.status(200).json({ 
+      message: "Đặt lại mật khẩu thành công! Bạn có thể đăng nhập với mật khẩu mới." 
+    });
 
   } catch (error) {
-    console.error("Error in resetPassword:", error);
-    res.status(500).json({ message: "Đã xảy ra lỗi phía máy chủ khi đặt lại mật khẩu.", error: error.message });
+    console.error("❌ Error in resetPassword:", error);
+    res.status(500).json({ 
+      message: "Đã xảy ra lỗi phía máy chủ khi đặt lại mật khẩu.", 
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 };
 // Có thể thêm các hàm khác như forgot password, reset password...
