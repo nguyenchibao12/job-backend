@@ -134,20 +134,20 @@ export const updateJob = async (req, res) => {
       job.reviewedAt = undefined;
       message = "Cập nhật thành công. Tin của bạn đã được gửi lại cho Admin duyệt.";
       
-      try {
-        await transporter.sendMail({
-          from: `"StudentWork - Admin Notification" <${process.env.EMAIL_USERNAME}>`,
-          to: process.env.ADMIN_EMAIL || process.env.EMAIL_USERNAME,
-          subject: '⚠️ Tin tuyển dụng đã duyệt vừa bị sửa',
-          html: `
-            <p>Tin <strong>${job.title}</strong> (ID: ${jobId}) đã được duyệt trước đó vừa bị nhà tuyển dụng cập nhật.</p>
-            <p>Tin đã được chuyển về trạng thái 'PendingApproval'. Vui lòng kiểm tra và duyệt lại nội dung.</p>
-          `,
-        });
+      // Gửi email async, không block response
+      transporter.sendMail({
+        from: `"StudentWork - Admin Notification" <${process.env.EMAIL_USERNAME}>`,
+        to: process.env.ADMIN_EMAIL || process.env.EMAIL_USERNAME,
+        subject: '⚠️ Tin tuyển dụng đã duyệt vừa bị sửa',
+        html: `
+          <p>Tin <strong>${job.title}</strong> (ID: ${jobId}) đã được duyệt trước đó vừa bị nhà tuyển dụng cập nhật.</p>
+          <p>Tin đã được chuyển về trạng thái 'PendingApproval'. Vui lòng kiểm tra và duyệt lại nội dung.</p>
+        `,
+      }).then(() => {
         console.log('✅ Re-approval email sent to admin');
-      } catch (emailError) {
+      }).catch((emailError) => {
         console.error('❌ Error sending re-approval email:', emailError);
-      }
+      });
     }
 
     const updatedJob = await job.save();
@@ -242,33 +242,33 @@ export const uploadPaymentProof = async (req, res) => {
     await job.save();
     console.log(`✅ Payment proof uploaded for job ${jobId}`);
 
-    // 🟢 Gửi email thông báo cho Admin
-    try {
-      await transporter.sendMail({
-        from: `"StudentWork - Admin Notification" <${process.env.EMAIL_USERNAME}>`,
-        to: process.env.ADMIN_EMAIL || process.env.EMAIL_USERNAME,
-        subject: '🔔 Có tin tuyển dụng mới cần duyệt',
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; padding: 20px;">
-            <h2 style="color: #1f2937;">🔔 Có tin tuyển dụng mới cần xác nhận thanh toán</h2>
-            <div style="background: #f3f4f6; padding: 15px; border-radius: 8px; margin: 20px 0;">
-              <p><strong>Công việc:</strong> ${job.title}</p>
-              <p><strong>Công ty:</strong> ${job.company}</p>
-              <p><strong>Nhà tuyển dụng ID:</strong> ${recruiterId}</p>
-              <p><strong>Số tiền:</strong> ${job.paymentAmount.toLocaleString('vi-VN')} VND</p>
-              <p><strong>Ngày upload:</strong> ${new Date().toLocaleString('vi-VN')}</p>
-              <p><strong>Ảnh biên lai:</strong></p>
-              <img src="${job.paymentProof}" alt="Payment Proof" style="max-width: 100%; border-radius: 8px;" />
-            </div>
-            <p>Vui lòng đăng nhập Admin Dashboard để xem biên lai và duyệt tin.</p>
+    // 🟢 Gửi email thông báo cho Admin (async, không block response)
+    transporter.sendMail({
+      from: `"StudentWork - Admin Notification" <${process.env.EMAIL_USERNAME}>`,
+      to: process.env.ADMIN_EMAIL || process.env.EMAIL_USERNAME,
+      subject: '🔔 Có tin tuyển dụng mới cần duyệt',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; padding: 20px;">
+          <h2 style="color: #1f2937;">🔔 Có tin tuyển dụng mới cần xác nhận thanh toán</h2>
+          <div style="background: #f3f4f6; padding: 15px; border-radius: 8px; margin: 20px 0;">
+            <p><strong>Công việc:</strong> ${job.title}</p>
+            <p><strong>Công ty:</strong> ${job.company}</p>
+            <p><strong>Nhà tuyển dụng ID:</strong> ${recruiterId}</p>
+            <p><strong>Số tiền:</strong> ${job.paymentAmount.toLocaleString('vi-VN')} VND</p>
+            <p><strong>Ngày upload:</strong> ${new Date().toLocaleString('vi-VN')}</p>
+            <p><strong>Ảnh biên lai:</strong></p>
+            <img src="${job.paymentProof}" alt="Payment Proof" style="max-width: 100%; border-radius: 8px;" />
           </div>
-        `,
-      });
+          <p>Vui lòng đăng nhập Admin Dashboard để xem biên lai và duyệt tin.</p>
+        </div>
+      `,
+    }).then(() => {
       console.log('✅ Email notification sent to admin');
-    } catch (emailError) {
+    }).catch((emailError) => {
       console.error('❌ Error sending admin email:', emailError);
-    }
+    });
 
+    // Trả về response ngay lập tức, không đợi email
     res.status(200).json({
       message: "Upload biên lai thành công! Tin của bạn đang chờ Admin xác nhận.",
       job,
@@ -355,41 +355,41 @@ export const updateJobStatus = async (req, res) => {
     await job.save();
     console.log(`✅ Job ${jobId} ${status} by admin ${adminId}`);
 
-    try {
-      const emailSubject = status === 'Approved' 
-        ? `✅ Tin tuyển dụng đã được duyệt: ${job.title}`
-        : `❌ Tin tuyển dụng bị từ chối: ${job.title}`;
+    // Gửi email thông báo cho recruiter (async, không block response)
+    const emailSubject = status === 'Approved' 
+      ? `✅ Tin tuyển dụng đã được duyệt: ${job.title}`
+      : `❌ Tin tuyển dụng bị từ chối: ${job.title}`;
 
-      const emailContent = status === 'Approved' 
-        ? `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; padding: 20px;">
-            <h2 style="color: #10b981;">🎉 Chúc mừng!</h2>
-            <p>Tin tuyển dụng <strong>${job.title}</strong> của bạn đã được Admin xác nhận thanh toán và duyệt.</p>
-            <p>Tin của bạn giờ đã hiển thị công khai trên hệ thống StudentWork.</p>
-            <p style="margin-top: 20px;">Chúc bạn tìm được ứng viên phù hợp! 🚀</p>
-          </div>
-        `
-        : `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; padding: 20px;">
-            <h2 style="color: #dc2626;">Thông báo từ chối tin</h2>
-            <p>Rất tiếc, tin tuyển dụng <strong>${job.title}</strong> của bạn không được duyệt.</p>
-            <p><strong>Lý do:</strong> ${job.rejectionReason}</p>
-            <p>Vui lòng đăng nhập, <strong>chỉnh sửa lại tin</strong> và <strong>upload lại biên lai</strong> để được duyệt lại.</p>
-          </div>
-        `;
+    const emailContent = status === 'Approved' 
+      ? `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; padding: 20px;">
+          <h2 style="color: #10b981;">🎉 Chúc mừng!</h2>
+          <p>Tin tuyển dụng <strong>${job.title}</strong> của bạn đã được Admin xác nhận thanh toán và duyệt.</p>
+          <p>Tin của bạn giờ đã hiển thị công khai trên hệ thống StudentWork.</p>
+          <p style="margin-top: 20px;">Chúc bạn tìm được ứng viên phù hợp! 🚀</p>
+        </div>
+      `
+      : `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; padding: 20px;">
+          <h2 style="color: #dc2626;">Thông báo từ chối tin</h2>
+          <p>Rất tiếc, tin tuyển dụng <strong>${job.title}</strong> của bạn không được duyệt.</p>
+          <p><strong>Lý do:</strong> ${job.rejectionReason}</p>
+          <p>Vui lòng đăng nhập, <strong>chỉnh sửa lại tin</strong> và <strong>upload lại biên lai</strong> để được duyệt lại.</p>
+        </div>
+      `;
 
-      await transporter.sendMail({
-        from: `"StudentWork Admin" <${process.env.EMAIL_USERNAME}>`,
-        to: job.recruiter.email,
-        subject: emailSubject,
-        html: emailContent,
-      });
-
+    transporter.sendMail({
+      from: `"StudentWork Admin" <${process.env.EMAIL_USERNAME}>`,
+      to: job.recruiter.email,
+      subject: emailSubject,
+      html: emailContent,
+    }).then(() => {
       console.log(`✅ Status notification email sent to ${job.recruiter.email}`);
-    } catch (emailError) {
+    }).catch((emailError) => {
       console.error('❌ Error sending email:', emailError);
-    }
+    });
 
+    // Trả về response ngay lập tức, không đợi email
     res.status(200).json({
       message: status === 'Approved' 
         ? `Đã duyệt tin tuyển dụng thành công!` 

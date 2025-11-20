@@ -1,7 +1,19 @@
 // server/controllers/applicationController.js
 import Application from '../models/Application.js';
 import Job from '../models/Job.js';
-import nodemailer from 'nodemailer'; 
+import nodemailer from 'nodemailer';
+
+// ========================================
+// 🔧 NODEMAILER TRANSPORTER (Dùng chung)
+// Tạo 1 lần và tái sử dụng, thay vì tạo mới trong mỗi hàm
+// ========================================
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USERNAME,
+    pass: process.env.EMAIL_PASSWORD,
+  },
+}); 
 
 // ========================================
 // STUDENT: Nộp đơn ứng tuyển
@@ -164,32 +176,20 @@ export const updateApplicationStatus = async (req, res) => {
 
     console.log(`✅ Application ${applicationId} status updated to ${status}`);
 
-    // ✅ 3. GỬI EMAIL KHI TUYỂN DỤNG (HIRED)
+    // ✅ 3. GỬI EMAIL KHI TUYỂN DỤNG (HIRED) - Async, không block response
     if (status === 'Hired') {
-      try {
-        // Populate đầy đủ thông tin để gửi email
-        await application.populate([
-          { path: 'student', select: 'name email' },
-          { path: 'job', select: 'title company location salary' },
-          { path: 'recruiter', select: 'name email phone companyName' }
-        ]);
+      // Populate đầy đủ thông tin để gửi email
+      application.populate([
+        { path: 'student', select: 'name email' },
+        { path: 'job', select: 'title company location salary' },
+        { path: 'recruiter', select: 'name email phone companyName' }
+      ]).then((populatedApp) => {
+        console.log(`📧 Sending hired email to ${populatedApp.student.email}...`);
 
-        console.log(`📧 Sending hired email to ${application.student.email}...`);
-
-        // Tạo transporter (dùng config giống reset password)
-        const transporter = nodemailer.createTransport({
-          service: 'gmail',
-          auth: {
-            user: process.env.EMAIL_USERNAME,
-            pass: process.env.EMAIL_PASSWORD,
-          },
-        });
-
-        // Nội dung email
         const mailOptions = {
           from: `"StudentWork - Thông Báo Tuyển Dụng" <${process.env.EMAIL_USERNAME}>`,
-          to: application.student.email,
-          subject: `🎉 Chúc mừng! Bạn đã được tuyển dụng tại ${application.job.company}`,
+          to: populatedApp.student.email,
+          subject: `🎉 Chúc mừng! Bạn đã được tuyển dụng tại ${populatedApp.job.company}`,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb; border-radius: 10px;">
               <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 10px 10px 0 0; text-align: center;">
@@ -198,7 +198,7 @@ export const updateApplicationStatus = async (req, res) => {
               
               <div style="background: white; padding: 30px; border-radius: 0 0 10px 10px;">
                 <p style="font-size: 18px; color: #1f2937; margin-bottom: 10px;">
-                  Xin chào <strong>${application.student.name}</strong>,
+                  Xin chào <strong>${populatedApp.student.name}</strong>,
                 </p>
                 
                 <p style="color: #4b5563; line-height: 1.6;">
@@ -207,17 +207,17 @@ export const updateApplicationStatus = async (req, res) => {
 
                 <div style="background: #ecfdf5; border-left: 4px solid #10b981; padding: 20px; margin: 20px 0; border-radius: 5px;">
                   <h2 style="color: #059669; margin: 0 0 10px 0; font-size: 20px;">
-                    ${application.job.title}
+                    ${populatedApp.job.title}
                   </h2>
                   <p style="color: #047857; margin: 5px 0;">
-                    <strong>🏢 Công ty:</strong> ${application.job.company}
+                    <strong>🏢 Công ty:</strong> ${populatedApp.job.company}
                   </p>
                   <p style="color: #047857; margin: 5px 0;">
-                    <strong>📍 Địa điểm:</strong> ${application.job.location || 'Liên hệ để biết thêm'}
+                    <strong>📍 Địa điểm:</strong> ${populatedApp.job.location || 'Liên hệ để biết thêm'}
                   </p>
-                  ${application.job.salary ? `
+                  ${populatedApp.job.salary ? `
                     <p style="color: #047857; margin: 5px 0;">
-                      <strong>💰 Lương:</strong> ${application.job.salary}
+                      <strong>💰 Lương:</strong> ${populatedApp.job.salary}
                     </p>
                   ` : ''}
                 </div>
@@ -225,14 +225,14 @@ export const updateApplicationStatus = async (req, res) => {
                 <div style="background: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
                   <h3 style="color: #1f2937; margin-top: 0; font-size: 16px;">📞 Thông tin liên hệ nhà tuyển dụng:</h3>
                   <p style="color: #4b5563; margin: 5px 0;">
-                    <strong>Tên:</strong> ${application.recruiter.companyName || application.recruiter.name}
+                    <strong>Tên:</strong> ${populatedApp.recruiter.companyName || populatedApp.recruiter.name}
                   </p>
                   <p style="color: #4b5563; margin: 5px 0;">
-                    <strong>Email:</strong> <a href="mailto:${application.recruiter.email}" style="color: #4f46e5; text-decoration: none;">${application.recruiter.email}</a>
+                    <strong>Email:</strong> <a href="mailto:${populatedApp.recruiter.email}" style="color: #4f46e5; text-decoration: none;">${populatedApp.recruiter.email}</a>
                   </p>
-                  ${application.recruiter.phone ? `
+                  ${populatedApp.recruiter.phone ? `
                     <p style="color: #4b5563; margin: 5px 0;">
-                      <strong>Số điện thoại:</strong> ${application.recruiter.phone}
+                      <strong>Số điện thoại:</strong> ${populatedApp.recruiter.phone}
                     </p>
                   ` : ''}
                 </div>
@@ -261,45 +261,34 @@ export const updateApplicationStatus = async (req, res) => {
           `,
         };
 
-        // Gửi email
-        await transporter.sendMail(mailOptions);
-        console.log(`✅ Hired notification email sent successfully to ${application.student.email}`);
-
-      } catch (emailError) {
+        // Gửi email async, không block response
+        return transporter.sendMail(mailOptions);
+      }).then(() => {
+        console.log(`✅ Hired notification email sent successfully`);
+      }).catch((emailError) => {
         console.error('❌ Error sending hired email:', emailError);
         // Không throw error để không ảnh hưởng đến việc update status
-        // Email lỗi nhưng status vẫn được update
-      }
+      });
     }
 
-    // ✅ 4. GỬI EMAIL KHI TỪ CHỐI (REJECTED) - Tùy chọn
+    // ✅ 4. GỬI EMAIL KHI TỪ CHỐI (REJECTED) - Async, không block response
     if (status === 'Rejected') {
-      try {
-        await application.populate([
-          { path: 'student', select: 'name email' },
-          { path: 'job', select: 'title company' },
-          { path: 'recruiter', select: 'companyName name' }
-        ]);
-
-        console.log(`📧 Sending rejection email to ${application.student.email}...`);
-
-        const transporter = nodemailer.createTransport({
-          service: 'gmail',
-          auth: {
-            user: process.env.EMAIL_USERNAME,
-            pass: process.env.EMAIL_PASSWORD,
-          },
-        });
+      application.populate([
+        { path: 'student', select: 'name email' },
+        { path: 'job', select: 'title company' },
+        { path: 'recruiter', select: 'companyName name' }
+      ]).then((populatedApp) => {
+        console.log(`📧 Sending rejection email to ${populatedApp.student.email}...`);
 
         const mailOptions = {
           from: `"StudentWork - Thông Báo" <${process.env.EMAIL_USERNAME}>`,
-          to: application.student.email,
-          subject: `Thông báo về đơn ứng tuyển tại ${application.job.company}`,
+          to: populatedApp.student.email,
+          subject: `Thông báo về đơn ứng tuyển tại ${populatedApp.job.company}`,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-              <h2 style="color: #1f2937;">Xin chào ${application.student.name},</h2>
+              <h2 style="color: #1f2937;">Xin chào ${populatedApp.student.name},</h2>
               <p style="color: #4b5563; line-height: 1.6;">
-                Cảm ơn bạn đã quan tâm và ứng tuyển vào vị trí <strong>${application.job.title}</strong> tại <strong>${application.job.company}</strong>.
+                Cảm ơn bạn đã quan tâm và ứng tuyển vào vị trí <strong>${populatedApp.job.title}</strong> tại <strong>${populatedApp.job.company}</strong>.
               </p>
               <p style="color: #4b5563; line-height: 1.6;">
                 Sau khi xem xét kỹ lưỡng, chúng tôi rất tiếc phải thông báo rằng lần này chúng tôi đã chọn ứng viên phù hợp hơn với vị trí này.
@@ -317,12 +306,13 @@ export const updateApplicationStatus = async (req, res) => {
           `,
         };
 
-        await transporter.sendMail(mailOptions);
-        console.log(`✅ Rejection email sent to ${application.student.email}`);
-
-      } catch (emailError) {
+        // Gửi email async, không block response
+        return transporter.sendMail(mailOptions);
+      }).then(() => {
+        console.log(`✅ Rejection email sent successfully`);
+      }).catch((emailError) => {
         console.error('❌ Error sending rejection email:', emailError);
-      }
+      });
     }
 
     // 5. Trả về response
